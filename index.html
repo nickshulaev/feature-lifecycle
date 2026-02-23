@@ -7,6 +7,30 @@
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Roboto',sans-serif;background:#F9FAFB;color:#111827;-webkit-font-smoothing:antialiased}
+.pipeline-scroll{overflow-x:auto;padding:16px 0 24px 0}
+.pipeline-row{display:flex;align-items:flex-start;gap:0;min-width:max-content;padding:0 16px}
+.pipe-node{position:relative;display:flex;flex-direction:column;align-items:center;cursor:pointer;flex-shrink:0;width:120px;transition:transform 0.15s}
+.pipe-node:hover{transform:translateY(-2px)}
+.pipe-circle{width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;color:#FFF;position:relative;transition:box-shadow 0.2s;z-index:2}
+.pipe-circle.gate{border-radius:8px;transform:rotate(45deg)}
+.pipe-circle.gate span{transform:rotate(-45deg)}
+.pipe-node:hover .pipe-circle{box-shadow:0 4px 12px rgba(0,0,0,0.15)}
+.pipe-label{margin-top:8px;font-size:11px;font-weight:600;color:#374151;text-align:center;line-height:1.3;max-width:110px;word-wrap:break-word}
+.pipe-roles{margin-top:4px;display:flex;flex-wrap:wrap;justify-content:center;gap:2px}
+.pipe-connector{width:32px;display:flex;align-items:center;justify-content:center;flex-shrink:0;padding-top:12px}
+.pipe-connector svg{display:block}
+.pipe-progress-ring{position:absolute;top:-3px;left:-3px}
+.swim-lanes{margin-top:16px;border:1px solid #E5E7EB;border-radius:8px;overflow:hidden}
+.swim-lane{display:flex;border-bottom:1px solid #F3F4F6}
+.swim-lane:last-child{border-bottom:none}
+.swim-lane-label{width:140px;padding:10px 12px;font-size:12px;font-weight:700;flex-shrink:0;display:flex;align-items:center;gap:6px;border-right:1px solid #F3F4F6}
+.swim-lane-cells{display:flex;flex:1;min-width:max-content}
+.swim-cell{width:120px;flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:6px 4px;border-right:1px solid #F9FAFB}
+.swim-dot{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#FFF}
+.swim-dot.owner{box-shadow:0 0 0 2px #FFF,0 0 0 4px currentColor}
+.detail-modal{position:fixed;top:0;left:0;right:0;bottom:0;z-index:100;display:flex;align-items:center;justify-content:center}
+.detail-backdrop{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4)}
+.detail-content{position:relative;background:#FFF;border-radius:12px;max-width:560px;width:90%;max-height:80vh;overflow-y:auto;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.2)}
 </style>
 <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
@@ -14,102 +38,115 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Roboto',sans-serif
 <body>
 <div id="root"></div>
 <script>
-const e=React.createElement,{useState,useMemo,useEffect,useCallback}=React;
+const e=React.createElement,{useState,useMemo,useEffect,useCallback,useRef}=React;
 
-const ROLES={
-PM:{label:"PM",color:"#3B82F6",bg:"#EFF6FF"},
-DEV:{label:"Dev Lead / Senior",color:"#10B981",bg:"#ECFDF5"},
-QA:{label:"QA",color:"#F59E0B",bg:"#FFFBEB"},
-DESIGN:{label:"Design",color:"#EC4899",bg:"#FDF2F8"},
-DEVOPS:{label:"DevOps",color:"#8B5CF6",bg:"#F5F3FF"},
-PRODUCT:{label:"Product Owner",color:"#EF4444",bg:"#FEF2F2"},
-SUPPORT:{label:"Support",color:"#06B6D4",bg:"#ECFEFF"}
-};
+const ROLES={PM:{label:"PM",color:"#3B82F6",bg:"#EFF6FF"},DEV:{label:"Dev Lead / Senior",color:"#10B981",bg:"#ECFDF5"},QA:{label:"QA",color:"#F59E0B",bg:"#FFFBEB"},DESIGN:{label:"Design",color:"#EC4899",bg:"#FDF2F8"},DEVOPS:{label:"DevOps",color:"#8B5CF6",bg:"#F5F3FF"},PRODUCT:{label:"Product Owner",color:"#EF4444",bg:"#FEF2F2"},SUPPORT:{label:"Support",color:"#06B6D4",bg:"#ECFEFF"}};
+
+const PHASE_COLORS={discovery:"#6366F1",definition:"#3B82F6",delivery:"#10B981",release:"#F59E0B",close:"#8B5CF6"};
 
 const FULL_CYCLE=[
-{id:"discovery",name:"Discovery & Prioritization",owner:["PRODUCT"],participants:["PM"],description:"Формулировка гипотезы, ICE-скоринг, приоритизация на Product Committee.",artifacts:["Hypothesis Card","ICE Score","Priority Decision"],checklist:{
-PRODUCT:["Проблема описана в формате JTBD","Гипотеза сформулирована (If... Then... Because...)","ICE-скоринг проведен","Целевая метрика определена","Решение вынесено на Priority meeting"],
-PM:["Операционные ограничения учтены","Зависимости от других команд/сервисов идентифицированы"]}},
-{id:"feature-spec",name:"Feature Specification",owner:["PRODUCT","PM"],participants:["DEV"],description:"Детальное описание фичи: проблема, решение, метрики, критерии успеха, compliance-требования.",artifacts:["Feature Spec Document","Success Criteria","Compliance Checklist"],checklist:{
-PRODUCT:["Проблема, которую решаем — описана","Предлагаемое решение — описано","Метрики успеха определены (North Star + proxy)","Критерии приемки сформулированы","Ссылки на исследования / инсайты приложены"],
-PM:["Compliance-требования проверены","Влияние на приложение ТН оценено (TN Impact Assessment)","Зависимости от бэкенда банка / АБС описаны","Feature flag стратегия определена (нужен / не нужен, план раскатки)"],
-DEV:["Техническая feasibility подтверждена на высоком уровне"]}},
-{id:"design",name:"UX/UI Design",owner:["DESIGN"],participants:["PM","QA"],description:"Дизайн в Figma. QA подключается для ревью corner cases на этапе дизайна.",artifacts:["Figma Mockups","User Flows","QA Corner Cases Document"],checklist:{
-DESIGN:["User flow отрисован","UI-макеты готовы (все состояния: loading, empty, error, success)","Edge cases отрисованы (null-значения, длинные строки, оффлайн)","Макеты для Sky Bank адаптированы (если применимо)","Ссылка на Figma актуальна и расшарена"],
-QA:["Corner cases проревьюены на этапе дизайна","Тест-кейсы написаны (черновик) по макетам","Тестовые данные определены","Особенности тестирования зафиксированы"],
-PM:["Макеты соответствуют спецификации","Тест-кейсы QA проревьюены PM"]}},
-{id:"presentation",name:"Presentation Meeting",owner:["PM"],participants:["PRODUCT","DEV","QA","DESIGN"],description:"Презентация фичи команде. Обсуждение MVP scope, технических рисков, зависимостей.",artifacts:["Meeting Notes","MVP/MLP Description","Risk Register"],checklist:{
-PM:["Встреча назначена, все участники приглашены","Feature spec + макеты презентованы","MVP scope согласован","Технические риски зафиксированы","Зависимости от ТН обсуждены","Compliance-вопросы подняты"],
-DEV:["Архитектурные вопросы подняты","Spike-задачи идентифицированы (если нужны)","Предварительная оценка трудозатрат озвучена"],
-QA:["Тестовая стратегия озвучена","Ограничения тестовых сред подняты"]}},
-{id:"tech-doc",name:"Technical Documentation",owner:["DEV"],participants:["PM","QA"],description:"Техническая декомпозиция. Владелец — Tech Lead / Senior (роли SA нет). Диаграммы, API-контракты, задачи в Git.",artifacts:["Technical Spec","API Contracts","Decomposed Tasks in Git","Architecture Diagrams"],checklist:{
-DEV:["Spike-задачи завершены (если были)","Архитектурные диаграммы подготовлены","API-контракты описаны (request/response, версионирование, null-обработка)","Задачи декомпозированы и заведены в Git","Каждая задача привязана к Epic","Оценка трудозатрат по задачам готова","Влияние на кодовую базу ТН оценено и задокументировано"],
-PM:["Epic в Git создан со всеми вложениями (ТЗ, Figma, тест-кейсы, схема)","Шаблон задачи заполнен (feature flags, тестовые данные, параметры)"],
-QA:["Тест-кейсы финализированы","Тестовые данные подготовлены","Автотесты спланированы (если применимо)"]}},
-{id:"handshake",name:"Handshake Meeting (DoR Gate)",owner:["PM"],participants:["PRODUCT","DEV","QA"],gate:true,description:"Definition of Ready. Финальное подтверждение готовности к разработке. Без прохождения DoR — задача не берется в спринт.",artifacts:["Approved Scope","DoR Checklist (signed off)"],checklist:{
-PM:["Feature spec утверждена","Макеты в Figma финальные и согласованы","Тест-кейсы готовы и проревьюены","Тестовые данные подготовлены","Задачи в Git заведены и привязаны к Epic","Feature flag стратегия утверждена","Compliance-согласование получено (если нужно)","Влияние на ТН оценено и согласовано","Support handoff план готов","Scope зафиксирован и подписан"]}},
-{id:"sprint-planning",name:"Sprint Planning",owner:["PM"],participants:["DEV","QA"],description:"Планирование спринта. Только задачи, прошедшие DoR.",artifacts:["Sprint Goal","Sprint Backlog"],checklist:{
-PM:["Sprint Goal сформулирован","Задачи распределены по разработчикам","Capacity команды учтен","Зависимости между задачами выстроены"],
-DEV:["Задачи понятны, вопросов нет","Оценки подтверждены"],
-QA:["QA-ресурсы распланированы","Тестовые среды готовы"]}},
-{id:"development",name:"Development",owner:["DEV"],participants:["PM","QA"],description:"Разработка. Daily stand-ups, code review, merge requests. Feature flag включен на DEV.",artifacts:["Working Code","Code Reviews","Merge Requests"],checklist:{
-DEV:["Код написан по спецификации","Code review пройден (включая ревью от ТН если затрагивает общий код)","Unit-тесты написаны","Feature flag активирован на DEV-среде","API-контракты соответствуют документации","Merge request создан и аппрувнут"],
-PM:["Ежедневный статус актуален","Блокеры эскалированы"],
-QA:["Smoke-тестирование на DEV пройдено","Критические баги зарепорчены"]}},
-{id:"qa-testing",name:"QA & Testing",owner:["QA"],participants:["DEV","PM"],description:"Полное тестирование. ~1 неделя на DEV, затем RC. PM ревьюит результаты.",artifacts:["Test Report","Bug Reports","Regression Results"],checklist:{
-QA:["Тест-кейсы выполнены (все из подготовленных на этапе дизайна)","Регрессионное тестирование пройдено","UI-тестирование выполнено (все состояния, edge cases)","Баги заведены с приоритетами","Критические баги устранены и перетестированы","Тестирование на RC-среде пройдено","Sky Bank — протестировано (если применимо)"],
-DEV:["Все критические и major баги исправлены","Фиксы прошли code review"],
-PM:["Результаты тестирования проревьюены","Acceptance testing пройден лично","Go/No-Go решение принято"]}},
-{id:"support-handoff",name:"Support Handoff",owner:["PM"],participants:["SUPPORT"],description:"Подготовка поддержки к релизу. Release notes, обновление скриптов, обучение.",artifacts:["Support Release Notes","Updated Scripts","FAQ"],checklist:{
-PM:["Release notes для поддержки подготовлены","Скрипты ответов обновлены","FAQ по новой фиче написан","Команда поддержки уведомлена и обучена","Контактное лицо для эскалации определено"],
-SUPPORT:["Release notes прочитаны","Вопросы заданы до релиза","Скрипты актуализированы в системе"]}},
-{id:"release",name:"Release & Feature Flag Rollout",owner:["DEVOPS"],participants:["PM","DEV","QA"],description:"Релиз в сторы. Постепенная раскатка через feature flags: RC → Prod (частично) → Prod (полностью).",artifacts:["Release Build","Release Notes","Feature Flag Configuration"],checklist:{
-DEVOPS:["Релиз собран и отправлен в сторы","Release notes опубликованы","Мониторинг настроен (crash rate, error rate)"],
-PM:["Feature flag раскатка по плану (Dev → RC → Prod 10% → Prod 100%)","Критерии полной раскатки определены","Rollback-план готов"],
-QA:["Smoke-тест на Prod после раскатки","Мониторинг багов первые 24-48ч"],
-DEV:["Feature flag конфигурация корректна (iOS, Android, Web)","Логирование событий работает"]}},
-{id:"monitoring",name:"Post-Release Monitoring",owner:["PM"],participants:["DEV","QA","DEVOPS"],description:"Мониторинг после релиза. Crash rate, ошибки, фидбек поддержки. Решение о полной раскатке / откате.",artifacts:["Monitoring Dashboard","Incident Reports"],checklist:{
-PM:["Метрики мониторинга проверены (24ч / 48ч / 1 неделя)","Фидбек от поддержки собран","Решение: полная раскатка / откат / доработка","Feature flag удален после стабилизации"],
-DEV:["Логи проверены на аномалии","Performance не деградировал"]}},
-{id:"dod-close",name:"Definition of Done & Close",owner:["PM"],participants:["PRODUCT","DEV","QA"],gate:true,description:"Финальный гейт. Фича считается завершенной только после прохождения DoD.",artifacts:["DoD Checklist (signed off)","Retro Notes (optional)","Demo Recording (optional)"],checklist:{
-PM:["Фича работает на Prod для 100% пользователей","Feature flag удален","Все критические/major баги закрыты","Метрики успеха начали трекаться","Документация актуализирована","Support handoff завершен","Ретроспектива проведена (рекомендовано)","Демо записано (рекомендовано)","Epic в Git закрыт"]}}
+{id:"discovery",name:"Discovery & Prioritization",shortName:"Discovery",phase:"discovery",owner:["PRODUCT"],participants:["PM"],description:"Формулировка гипотезы, ICE-скоринг, приоритизация на Product Committee.",artifacts:["Hypothesis Card","ICE Score","Priority Decision"],checklist:{PRODUCT:["Проблема описана в формате JTBD","Гипотеза сформулирована (If... Then... Because...)","ICE-скоринг проведен","Целевая метрика определена","Решение вынесено на Priority meeting"],PM:["Операционные ограничения учтены","Зависимости от других команд/сервисов идентифицированы"]}},
+{id:"feature-spec",name:"Feature Specification",shortName:"Spec",phase:"definition",owner:["PRODUCT","PM"],participants:["DEV"],description:"Детальное описание фичи: проблема, решение, метрики, критерии успеха, compliance-требования.",artifacts:["Feature Spec Document","Success Criteria","Compliance Checklist"],checklist:{PRODUCT:["Проблема, которую решаем — описана","Предлагаемое решение — описано","Метрики успеха определены (North Star + proxy)","Критерии приемки сформулированы","Ссылки на исследования / инсайты приложены"],PM:["Compliance-требования проверены","Влияние на приложение ТН оценено (TN Impact Assessment)","Зависимости от бэкенда банка / АБС описаны","Feature flag стратегия определена (нужен / не нужен, план раскатки)"],DEV:["Техническая feasibility подтверждена на высоком уровне"]}},
+{id:"design",name:"UX/UI Design",shortName:"Design",phase:"definition",owner:["DESIGN"],participants:["PM","QA"],description:"Дизайн в Figma. QA подключается для ревью corner cases на этапе дизайна.",artifacts:["Figma Mockups","User Flows","QA Corner Cases Document"],checklist:{DESIGN:["User flow отрисован","UI-макеты готовы (все состояния: loading, empty, error, success)","Edge cases отрисованы (null-значения, длинные строки, оффлайн)","Макеты для Sky Bank адаптированы (если применимо)","Ссылка на Figma актуальна и расшарена"],QA:["Corner cases проревьюены на этапе дизайна","Тест-кейсы написаны (черновик) по макетам","Тестовые данные определены","Особенности тестирования зафиксированы"],PM:["Макеты соответствуют спецификации","Тест-кейсы QA проревьюены PM"]}},
+{id:"presentation",name:"Presentation Meeting",shortName:"Present",phase:"definition",owner:["PM"],participants:["PRODUCT","DEV","QA","DESIGN"],description:"Презентация фичи команде. Обсуждение MVP scope, технических рисков, зависимостей.",artifacts:["Meeting Notes","MVP/MLP Description","Risk Register"],checklist:{PM:["Встреча назначена, все участники приглашены","Feature spec + макеты презентованы","MVP scope согласован","Технические риски зафиксированы","Зависимости от ТН обсуждены","Compliance-вопросы подняты"],DEV:["Архитектурные вопросы подняты","Spike-задачи идентифицированы (если нужны)","Предварительная оценка трудозатрат озвучена"],QA:["Тестовая стратегия озвучена","Ограничения тестовых сред подняты"]}},
+{id:"tech-doc",name:"Technical Documentation",shortName:"Tech Doc",phase:"definition",owner:["DEV"],participants:["PM","QA"],description:"Техническая декомпозиция. Владелец — Tech Lead / Senior. Диаграммы, API-контракты, задачи в Git.",artifacts:["Technical Spec","API Contracts","Decomposed Tasks in Git","Architecture Diagrams"],checklist:{DEV:["Spike-задачи завершены (если были)","Архитектурные диаграммы подготовлены","API-контракты описаны (request/response, версионирование, null-обработка)","Задачи декомпозированы и заведены в Git","Каждая задача привязана к Epic","Оценка трудозатрат по задачам готова","Влияние на кодовую базу ТН оценено и задокументировано"],PM:["Epic в Git создан со всеми вложениями (ТЗ, Figma, тест-кейсы, схема)","Шаблон задачи заполнен (feature flags, тестовые данные, параметры)"],QA:["Тест-кейсы финализированы","Тестовые данные подготовлены","Автотесты спланированы (если применимо)"]}},
+{id:"handshake",name:"Handshake Meeting (DoR Gate)",shortName:"DoR",phase:"definition",owner:["PM"],participants:["PRODUCT","DEV","QA"],gate:true,description:"Definition of Ready. Финальное подтверждение готовности к разработке.",artifacts:["Approved Scope","DoR Checklist (signed off)"],checklist:{PM:["Feature spec утверждена","Макеты в Figma финальные и согласованы","Тест-кейсы готовы и проревьюены","Тестовые данные подготовлены","Задачи в Git заведены и привязаны к Epic","Feature flag стратегия утверждена","Compliance-согласование получено (если нужно)","Влияние на ТН оценено и согласовано","Support handoff план готов","Scope зафиксирован и подписан"]}},
+{id:"sprint-planning",name:"Sprint Planning",shortName:"Sprint",phase:"delivery",owner:["PM"],participants:["DEV","QA"],description:"Планирование спринта. Только задачи, прошедшие DoR.",artifacts:["Sprint Goal","Sprint Backlog"],checklist:{PM:["Sprint Goal сформулирован","Задачи распределены по разработчикам","Capacity команды учтен","Зависимости между задачами выстроены"],DEV:["Задачи понятны, вопросов нет","Оценки подтверждены"],QA:["QA-ресурсы распланированы","Тестовые среды готовы"]}},
+{id:"development",name:"Development",shortName:"Dev",phase:"delivery",owner:["DEV"],participants:["PM","QA"],description:"Разработка. Daily stand-ups, code review, merge requests. Feature flag включен на DEV.",artifacts:["Working Code","Code Reviews","Merge Requests"],checklist:{DEV:["Код написан по спецификации","Code review пройден (включая ревью от ТН если затрагивает общий код)","Unit-тесты написаны","Feature flag активирован на DEV-среде","API-контракты соответствуют документации","Merge request создан и аппрувнут"],PM:["Ежедневный статус актуален","Блокеры эскалированы"],QA:["Smoke-тестирование на DEV пройдено","Критические баги зарепорчены"]}},
+{id:"qa-testing",name:"QA & Testing",shortName:"QA",phase:"delivery",owner:["QA"],participants:["DEV","PM"],description:"Полное тестирование. ~1 неделя на DEV, затем RC.",artifacts:["Test Report","Bug Reports","Regression Results"],checklist:{QA:["Тест-кейсы выполнены","Регрессионное тестирование пройдено","UI-тестирование выполнено (все состояния, edge cases)","Баги заведены с приоритетами","Критические баги устранены и перетестированы","Тестирование на RC-среде пройдено","Sky Bank — протестировано (если применимо)"],DEV:["Все критические и major баги исправлены","Фиксы прошли code review"],PM:["Результаты тестирования проревьюены","Acceptance testing пройден лично","Go/No-Go решение принято"]}},
+{id:"support-handoff",name:"Support Handoff",shortName:"Support",phase:"release",owner:["PM"],participants:["SUPPORT"],description:"Подготовка поддержки к релизу. Release notes, обновление скриптов, обучение.",artifacts:["Support Release Notes","Updated Scripts","FAQ"],checklist:{PM:["Release notes для поддержки подготовлены","Скрипты ответов обновлены","FAQ по новой фиче написан","Команда поддержки уведомлена и обучена","Контактное лицо для эскалации определено"],SUPPORT:["Release notes прочитаны","Вопросы заданы до релиза","Скрипты актуализированы в системе"]}},
+{id:"release",name:"Release & Feature Flag Rollout",shortName:"Release",phase:"release",owner:["DEVOPS"],participants:["PM","DEV","QA"],description:"Релиз в сторы. Постепенная раскатка через feature flags.",artifacts:["Release Build","Release Notes","Feature Flag Configuration"],checklist:{DEVOPS:["Релиз собран и отправлен в сторы","Release notes опубликованы","Мониторинг настроен (crash rate, error rate)"],PM:["Feature flag раскатка по плану (Dev → RC → Prod 10% → Prod 100%)","Критерии полной раскатки определены","Rollback-план готов"],QA:["Smoke-тест на Prod после раскатки","Мониторинг багов первые 24-48ч"],DEV:["Feature flag конфигурация корректна (iOS, Android, Web)","Логирование событий работает"]}},
+{id:"monitoring",name:"Post-Release Monitoring",shortName:"Monitor",phase:"release",owner:["PM"],participants:["DEV","QA","DEVOPS"],description:"Мониторинг после релиза. Crash rate, ошибки, фидбек поддержки.",artifacts:["Monitoring Dashboard","Incident Reports"],checklist:{PM:["Метрики мониторинга проверены (24ч / 48ч / 1 неделя)","Фидбек от поддержки собран","Решение: полная раскатка / откат / доработка","Feature flag удален после стабилизации"],DEV:["Логи проверены на аномалии","Performance не деградировал"]}},
+{id:"dod-close",name:"Definition of Done & Close",shortName:"DoD",phase:"close",owner:["PM"],participants:["PRODUCT","DEV","QA"],gate:true,description:"Финальный гейт. Фича считается завершенной только после прохождения DoD.",artifacts:["DoD Checklist (signed off)","Retro Notes (optional)","Demo Recording (optional)"],checklist:{PM:["Фича работает на Prod для 100% пользователей","Feature flag удален","Все критические/major баги закрыты","Метрики успеха начали трекаться","Документация актуализирована","Support handoff завершен","Ретроспектива проведена (рекомендовано)","Демо записано (рекомендовано)","Epic в Git закрыт"]}}
 ];
 
 const FAST_TRACK=[
-{id:"ft-intake",name:"Intake & Triage",owner:["PM"],participants:["DEV"],description:"Прием задачи. Источники: запрос банка, хотфикс, бэкенд-необходимость, инцидент. Классификация: hotfix / operational / minor improvement.",artifacts:["Task in Git (template filled)"],checklist:{
-PM:["Источник и причина задачи зафиксированы","Тип задачи определен (hotfix / operational / minor improvement)","Критичность оценена","Задача заведена в Git по шаблону","Влияние на ТН оценено (да/нет)"],
-DEV:["Техническая оценка трудозатрат дана","Риски озвучены"]}},
-{id:"ft-spec",name:"Lightweight Spec",owner:["PM"],participants:["DEV","QA"],description:"Минимальная спецификация. Без полного Discovery и ICE. Фокус на: что делаем, зачем, как проверяем.",artifacts:["Task Description","Acceptance Criteria","Test Cases (basic)"],checklist:{
-PM:["Что делаем — описано","Зачем — обоснование есть","Критерии приемки — 3-5 пунктов","Figma — приложена (если UI меняется)","Feature flag — нужен или нет","Compliance — не требуется / согласовано"],
-QA:["Базовые тест-кейсы написаны","Тестовые данные определены"],
-DEV:["Задача декомпозирована (если > 1 дня)","API-изменения описаны"]}},
-{id:"ft-dev",name:"Development & Testing",owner:["DEV"],participants:["QA","PM"],description:"Разработка и тестирование в сжатом цикле. Code review обязателен. QA тестирует параллельно.",artifacts:["Working Code","Test Results"],checklist:{
-DEV:["Код написан","Code review пройден","Unit-тесты написаны (для hotfix — минимум)","Merge request аппрувнут","Feature flag активирован (если нужен)"],
-QA:["Тест-кейсы выполнены","Регрессия ключевых сценариев пройдена","Баги зарепорчены и исправлены"],
-PM:["Acceptance testing пройден","Go/No-Go решение принято"]}},
-{id:"ft-release",name:"Release & Monitor",owner:["PM"],participants:["DEVOPS","DEV","SUPPORT"],description:"Релиз. Для hotfix — ускоренный цикл (мимо RC если критично). Мониторинг 24-48ч.",artifacts:["Release","Monitoring Results"],checklist:{
-PM:["Поддержка уведомлена (если user-facing)","Feature flag раскатка по плану","Мониторинг 24ч — ОК","Задача закрыта в Git"],
-DEVOPS:["Релиз выполнен","Мониторинг ошибок настроен"],
-DEV:["Логи проверены","Feature flag удален после стабилизации"]}}
+{id:"ft-intake",name:"Intake & Triage",shortName:"Intake",phase:"discovery",owner:["PM"],participants:["DEV"],description:"Прием задачи. Источники: запрос банка, хотфикс, бэкенд-необходимость, инцидент.",artifacts:["Task in Git (template filled)"],checklist:{PM:["Источник и причина задачи зафиксированы","Тип задачи определен (hotfix / operational / minor improvement)","Критичность оценена","Задача заведена в Git по шаблону","Влияние на ТН оценено (да/нет)"],DEV:["Техническая оценка трудозатрат дана","Риски озвучены"]}},
+{id:"ft-spec",name:"Lightweight Spec",shortName:"Spec",phase:"definition",owner:["PM"],participants:["DEV","QA"],description:"Минимальная спецификация. Без полного Discovery и ICE.",artifacts:["Task Description","Acceptance Criteria","Test Cases (basic)"],checklist:{PM:["Что делаем — описано","Зачем — обоснование есть","Критерии приемки — 3-5 пунктов","Figma — приложена (если UI меняется)","Feature flag — нужен или нет","Compliance — не требуется / согласовано"],QA:["Базовые тест-кейсы написаны","Тестовые данные определены"],DEV:["Задача декомпозирована (если > 1 дня)","API-изменения описаны"]}},
+{id:"ft-dev",name:"Development & Testing",shortName:"Dev+QA",phase:"delivery",owner:["DEV"],participants:["QA","PM"],description:"Разработка и тестирование в сжатом цикле. Code review обязателен.",artifacts:["Working Code","Test Results"],checklist:{DEV:["Код написан","Code review пройден","Unit-тесты написаны (для hotfix — минимум)","Merge request аппрувнут","Feature flag активирован (если нужен)"],QA:["Тест-кейсы выполнены","Регрессия ключевых сценариев пройдена","Баги зарепорчены и исправлены"],PM:["Acceptance testing пройден","Go/No-Go решение принято"]}},
+{id:"ft-release",name:"Release & Monitor",shortName:"Release",phase:"release",owner:["PM"],participants:["DEVOPS","DEV","SUPPORT"],description:"Релиз. Для hotfix — ускоренный цикл. Мониторинг 24-48ч.",artifacts:["Release","Monitoring Results"],checklist:{PM:["Поддержка уведомлена (если user-facing)","Feature flag раскатка по плану","Мониторинг 24ч — ОК","Задача закрыта в Git"],DEVOPS:["Релиз выполнен","Мониторинг ошибок настроен"],DEV:["Логи проверены","Feature flag удален после стабилизации"]}}
 ];
 
-function RoleBadge({roleKey,small}){
-const r=ROLES[roleKey];if(!r)return null;
-return e("span",{style:{display:"inline-block",padding:small?"1px 6px":"2px 8px",borderRadius:"4px",fontSize:small?"10px":"11px",fontWeight:600,color:r.color,backgroundColor:r.bg,border:"1px solid "+r.color+"20",marginRight:"4px",marginBottom:"2px"}},r.label);
+function getStageProgress(stage,checks,roleFilter){
+const roles=roleFilter?Object.keys(stage.checklist||{}).filter(r=>r===roleFilter):Object.keys(stage.checklist||{});
+let total=0,checked=0;
+roles.forEach(r=>{(stage.checklist[r]||[]).forEach((_,i)=>{total++;if(checks[stage.id+"-"+r+"-"+i])checked++;});});
+return{total,checked,pct:total>0?checked/total:0};
 }
 
-function CheckItem({text,checked,onChange}){
-return e("label",{style:{display:"flex",alignItems:"flex-start",gap:"8px",padding:"6px 0",cursor:"pointer",fontSize:"13px",lineHeight:"1.4",color:checked?"#9CA3AF":"#1F2937",textDecoration:checked?"line-through":"none",userSelect:"none"}},
-e("input",{type:"checkbox",checked:checked,onChange:onChange,style:{marginTop:"2px",accentColor:"#3B82F6",cursor:"pointer",flexShrink:0}}),
-e("span",null,text));
+function RoleBadge({roleKey,small}){const r=ROLES[roleKey];if(!r)return null;return e("span",{style:{display:"inline-block",padding:small?"1px 6px":"2px 8px",borderRadius:"4px",fontSize:small?"10px":"11px",fontWeight:600,color:r.color,backgroundColor:r.bg,border:"1px solid "+r.color+"20",marginRight:"4px",marginBottom:"2px"}},r.label);}
+function CheckItem({text,checked,onChange}){return e("label",{style:{display:"flex",alignItems:"flex-start",gap:"8px",padding:"6px 0",cursor:"pointer",fontSize:"13px",lineHeight:"1.4",color:checked?"#9CA3AF":"#1F2937",textDecoration:checked?"line-through":"none",userSelect:"none"}},e("input",{type:"checkbox",checked:checked,onChange:onChange,style:{marginTop:"2px",accentColor:"#3B82F6",cursor:"pointer",flexShrink:0}}),e("span",null,text));}
+function ProgressBar({completed,total}){const pct=total>0?Math.round(completed/total*100):0;return e("div",{style:{display:"flex",alignItems:"center",gap:"8px",marginTop:"4px"}},e("div",{style:{flex:1,height:"6px",backgroundColor:"#E5E7EB",borderRadius:"3px",overflow:"hidden"}},e("div",{style:{width:pct+"%",height:"100%",backgroundColor:pct===100?"#10B981":"#3B82F6",borderRadius:"3px",transition:"width 0.3s ease"}})),e("span",{style:{fontSize:"11px",color:"#6B7280",fontWeight:600,minWidth:"42px"}},completed+"/"+total));}
+
+function ProgressRing({pct,size,stroke,color}){
+const r=(size-stroke)/2,c=2*Math.PI*r;
+return e("svg",{className:"pipe-progress-ring",width:size,height:size},
+e("circle",{cx:size/2,cy:size/2,r:r,fill:"none",stroke:"#E5E7EB",strokeWidth:stroke}),
+e("circle",{cx:size/2,cy:size/2,r:r,fill:"none",stroke:color,strokeWidth:stroke,strokeDasharray:c,strokeDashoffset:c*(1-pct),strokeLinecap:"round",transform:"rotate(-90 "+size/2+" "+size/2+")",style:{transition:"stroke-dashoffset 0.4s ease"}}));
 }
 
-function ProgressBar({completed,total}){
-const pct=total>0?Math.round(completed/total*100):0;
-return e("div",{style:{display:"flex",alignItems:"center",gap:"8px",marginTop:"4px"}},
-e("div",{style:{flex:1,height:"6px",backgroundColor:"#E5E7EB",borderRadius:"3px",overflow:"hidden"}},
-e("div",{style:{width:pct+"%",height:"100%",backgroundColor:pct===100?"#10B981":"#3B82F6",borderRadius:"3px",transition:"width 0.3s ease"}})),
-e("span",{style:{fontSize:"11px",color:"#6B7280",fontWeight:600,minWidth:"42px"}},completed+"/"+total));
+function PipelineConnector(){
+return e("div",{className:"pipe-connector"},e("svg",{width:32,height:12},e("line",{x1:0,y1:6,x2:24,y2:6,stroke:"#D1D5DB",strokeWidth:2}),e("polygon",{points:"24,2 32,6 24,10",fill:"#D1D5DB"})));
+}
+
+function PipelineNode({stage,idx,checks,roleFilter,onClick}){
+const prog=getStageProgress(stage,checks,roleFilter);
+const phaseColor=PHASE_COLORS[stage.phase]||"#6B7280";
+const isComplete=prog.total>0&&prog.checked===prog.total;
+const bgColor=isComplete?"#10B981":phaseColor;
+return e("div",{className:"pipe-node",onClick:onClick},
+e("div",{style:{position:"relative"}},
+e(ProgressRing,{pct:prog.pct,size:58,stroke:3,color:isComplete?"#10B981":phaseColor}),
+e("div",{className:"pipe-circle"+(stage.gate?" gate":""),style:{backgroundColor:bgColor}},
+e("span",null,stage.gate?"\u2605":(idx+1)))),
+e("div",{className:"pipe-label"},stage.shortName||stage.name),
+e("div",{className:"pipe-roles"},
+...(stage.owner||[]).map(r=>e("span",{key:r,style:{width:8,height:8,borderRadius:"50%",backgroundColor:ROLES[r]?.color||"#999",border:"1px solid #FFF"}}))));
+}
+
+function SwimLanes({stages,checks,roleFilter}){
+const allRoleKeys=[];
+stages.forEach(s=>{[...(s.owner||[]),...(s.participants||[])].forEach(r=>{if(!allRoleKeys.includes(r))allRoleKeys.push(r);});});
+const filtered=roleFilter?allRoleKeys.filter(r=>r===roleFilter):allRoleKeys;
+return e("div",{className:"swim-lanes"},
+e("div",{className:"swim-lane",style:{backgroundColor:"#F9FAFB"}},
+e("div",{className:"swim-lane-label",style:{fontWeight:800,fontSize:"11px",color:"#9CA3AF"}},"ROLE"),
+e("div",{className:"swim-lane-cells"},...stages.map(s=>e("div",{key:s.id,className:"swim-cell",style:{fontWeight:700,fontSize:"10px",color:"#6B7280"}},s.shortName||s.name)))),
+...filtered.map(rk=>{
+const role=ROLES[rk];
+return e("div",{key:rk,className:"swim-lane"},
+e("div",{className:"swim-lane-label",style:{backgroundColor:role.bg}},e("span",{style:{width:8,height:8,borderRadius:"50%",backgroundColor:role.color,flexShrink:0}}),e("span",{style:{fontSize:"12px",color:role.color,fontWeight:600}},role.label)),
+e("div",{className:"swim-lane-cells"},...stages.map(s=>{
+const isOwner=(s.owner||[]).includes(rk);
+const isParticipant=(s.participants||[]).includes(rk);
+const hasChecklist=(s.checklist||{})[rk];
+if(!isOwner&&!isParticipant)return e("div",{key:s.id,className:"swim-cell"});
+const prog=hasChecklist?getStageProgress(s,checks,rk):{total:0,checked:0,pct:0};
+const done=prog.total>0&&prog.checked===prog.total;
+return e("div",{key:s.id,className:"swim-cell"},
+e("div",{className:"swim-dot"+(isOwner?" owner":""),style:{backgroundColor:done?"#10B981":isOwner?role.color:role.color+"80",color:done?"#FFF":"#FFF",borderColor:role.color}},
+prog.total>0?(done?"\u2713":prog.checked):isOwner?"\u25CF":"\u25CB"));
+})));
+}));
+}
+
+function DetailModal({stage,checks,onCheck,onClose,roleFilter}){
+const relevantRoles=roleFilter?Object.keys(stage.checklist||{}).filter(r=>r===roleFilter):Object.keys(stage.checklist||{});
+const prog=getStageProgress(stage,checks,roleFilter);
+return e("div",{className:"detail-modal"},
+e("div",{className:"detail-backdrop",onClick:onClose}),
+e("div",{className:"detail-content"},
+e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"16px"}},
+e("div",null,
+e("div",{style:{display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap"}},
+e("h2",{style:{fontSize:"18px",fontWeight:800}},stage.name),
+stage.gate&&e("span",{style:{fontSize:"10px",fontWeight:700,color:"#EF4444",border:"1px solid #EF4444",borderRadius:"4px",padding:"1px 6px",textTransform:"uppercase"}},"GATE")),
+e("div",{style:{marginTop:"4px"}},...(stage.owner||[]).map(r=>e(RoleBadge,{key:r,roleKey:r,small:true})),...(stage.participants||[]).map(r=>e("span",{key:r,style:{fontSize:"10px",color:"#9CA3AF",marginRight:"4px"}},"+"+ROLES[r]?.label)))),
+e("button",{onClick:onClose,style:{background:"none",border:"none",fontSize:"20px",cursor:"pointer",color:"#9CA3AF",padding:"4px"}},"\u2715")),
+e("p",{style:{fontSize:"13px",color:"#6B7280",lineHeight:"1.5",marginBottom:"12px"}},stage.description),
+e(ProgressBar,{completed:prog.checked,total:prog.total}),
+stage.artifacts&&e("div",{style:{margin:"12px 0"}},e("div",{style:{fontSize:"11px",fontWeight:700,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:"4px"}},"Artifacts"),e("div",{style:{display:"flex",flexWrap:"wrap",gap:"4px"}},...stage.artifacts.map(a=>e("span",{key:a,style:{fontSize:"11px",backgroundColor:"#F3F4F6",padding:"2px 8px",borderRadius:"4px",color:"#4B5563"}},a)))),
+...relevantRoles.map(roleKey=>e("div",{key:roleKey,style:{marginBottom:"12px",marginTop:"8px"}},e(RoleBadge,{roleKey:roleKey}),...(stage.checklist[roleKey]||[]).map((item,i)=>e(CheckItem,{key:i,text:item,checked:!!checks[stage.id+"-"+roleKey+"-"+i],onChange:()=>onCheck(stage.id+"-"+roleKey+"-"+i)}))))));
 }
 
 function StageCard({stage,checks,onCheck,expanded,onToggle,roleFilter}){
@@ -119,40 +156,46 @@ let totalItems=0,checkedItems=0;
 relevantRoles.forEach(r=>{(stage.checklist[r]||[]).forEach((_,i)=>{totalItems++;if(checks[stage.id+"-"+r+"-"+i])checkedItems++;});});
 const isComplete=totalItems>0&&checkedItems===totalItems;
 if(roleFilter&&!allRoles.includes(roleFilter)&&relevantRoles.length===0)return null;
-
 return e("div",{style:{border:stage.gate?"2px solid #EF4444":"1px solid #E5E7EB",borderRadius:"8px",marginBottom:"8px",backgroundColor:isComplete?"#F0FDF4":"#FFF",overflow:"hidden",transition:"all 0.2s"}},
 e("div",{onClick:onToggle,style:{padding:"12px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:"12px",userSelect:"none"}},
 e("span",{style:{fontSize:"16px",color:"#9CA3AF",transform:expanded?"rotate(90deg)":"rotate(0deg)",transition:"transform 0.2s",flexShrink:0}},"\u25B6"),
 e("div",{style:{flex:1}},
-e("div",{style:{display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap"}},
-e("span",{style:{fontWeight:700,fontSize:"14px",color:"#111827"}},stage.name),
-stage.gate&&e("span",{style:{fontSize:"10px",fontWeight:700,color:"#EF4444",border:"1px solid #EF4444",borderRadius:"4px",padding:"1px 6px",textTransform:"uppercase"}},"GATE"),
-isComplete&&e("span",{style:{fontSize:"13px",color:"#10B981"}},"\u2713")),
-e("div",{style:{marginTop:"4px"}},
-...(stage.owner||[]).map(r=>e(RoleBadge,{key:r,roleKey:r,small:true})),
-...(stage.participants||[]).map(r=>e("span",{key:r,style:{fontSize:"10px",color:"#9CA3AF",marginRight:"4px"}},"+"+ROLES[r]?.label))),
+e("div",{style:{display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap"}},e("span",{style:{fontWeight:700,fontSize:"14px",color:"#111827"}},stage.name),stage.gate&&e("span",{style:{fontSize:"10px",fontWeight:700,color:"#EF4444",border:"1px solid #EF4444",borderRadius:"4px",padding:"1px 6px",textTransform:"uppercase"}},"GATE"),isComplete&&e("span",{style:{fontSize:"13px",color:"#10B981"}},"\u2713")),
+e("div",{style:{marginTop:"4px"}},...(stage.owner||[]).map(r=>e(RoleBadge,{key:r,roleKey:r,small:true})),...(stage.participants||[]).map(r=>e("span",{key:r,style:{fontSize:"10px",color:"#9CA3AF",marginRight:"4px"}},"+"+ROLES[r]?.label))),
 e(ProgressBar,{completed:checkedItems,total:totalItems}))),
 expanded&&e("div",{style:{padding:"0 16px 16px 16px",borderTop:"1px solid #F3F4F6"}},
 e("p",{style:{fontSize:"12px",color:"#6B7280",margin:"12px 0 8px 0",lineHeight:"1.5"}},stage.description),
-stage.artifacts&&e("div",{style:{marginBottom:"12px"}},
-e("div",{style:{fontSize:"11px",fontWeight:700,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:"4px"}},"Artifacts"),
-e("div",{style:{display:"flex",flexWrap:"wrap",gap:"4px"}},
-...stage.artifacts.map(a=>e("span",{key:a,style:{fontSize:"11px",backgroundColor:"#F3F4F6",padding:"2px 8px",borderRadius:"4px",color:"#4B5563"}},a)))),
-...relevantRoles.map(roleKey=>e("div",{key:roleKey,style:{marginBottom:"12px"}},
-e(RoleBadge,{roleKey:roleKey}),
-e("div",{style:{marginLeft:"4px",marginTop:"4px"}},
-...(stage.checklist[roleKey]||[]).map((item,i)=>e(CheckItem,{key:i,text:item,checked:!!checks[stage.id+"-"+roleKey+"-"+i],onChange:()=>onCheck(stage.id+"-"+roleKey+"-"+i)})))))));
+stage.artifacts&&e("div",{style:{marginBottom:"12px"}},e("div",{style:{fontSize:"11px",fontWeight:700,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:"4px"}},"Artifacts"),e("div",{style:{display:"flex",flexWrap:"wrap",gap:"4px"}},...stage.artifacts.map(a=>e("span",{key:a,style:{fontSize:"11px",backgroundColor:"#F3F4F6",padding:"2px 8px",borderRadius:"4px",color:"#4B5563"}},a)))),
+...relevantRoles.map(roleKey=>e("div",{key:roleKey,style:{marginBottom:"12px"}},e(RoleBadge,{roleKey:roleKey}),e("div",{style:{marginLeft:"4px",marginTop:"4px"}},...(stage.checklist[roleKey]||[]).map((item,i)=>e(CheckItem,{key:i,text:item,checked:!!checks[stage.id+"-"+roleKey+"-"+i],onChange:()=>onCheck(stage.id+"-"+roleKey+"-"+i)})))))));
+}
+
+function PipelineView({stages,checks,onCheck,roleFilter}){
+const[selectedStage,setSelectedStage]=useState(null);
+const phases=[...new Set(stages.map(s=>s.phase))];
+const phaseNames={discovery:"Discovery",definition:"Definition",delivery:"Delivery",release:"Release",close:"Close"};
+return e("div",null,
+e("div",{style:{display:"flex",gap:"6px",marginBottom:"8px",paddingLeft:"16px"}},
+...phases.map(p=>e("span",{key:p,style:{fontSize:"10px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",color:PHASE_COLORS[p],padding:"2px 8px",borderRadius:"4px",backgroundColor:PHASE_COLORS[p]+"15",border:"1px solid "+PHASE_COLORS[p]+"30"}},phaseNames[p]||p))),
+e("div",{className:"pipeline-scroll"},
+e("div",{className:"pipeline-row"},
+...stages.flatMap((s,i)=>{
+const node=e(PipelineNode,{key:s.id,stage:s,idx:i,checks:checks,roleFilter:roleFilter,onClick:()=>setSelectedStage(s)});
+return i<stages.length-1?[node,e(PipelineConnector,{key:"c-"+i})]:[node];
+}))),
+e(SwimLanes,{stages:stages,checks:checks,roleFilter:roleFilter}),
+selectedStage&&e(DetailModal,{stage:selectedStage,checks:checks,onCheck:onCheck,onClose:()=>setSelectedStage(null),roleFilter:roleFilter}));
 }
 
 function App(){
 const[track,setTrack]=useState("full");
+const[view,setView]=useState("pipeline");
 const[roleFilter,setRoleFilter]=useState(null);
-const[checks,setChecks]=useState(()=>{try{const s=window.localStorage?.getItem("fl-checks");return s?JSON.parse(s):{}}catch(e){return{}}});
+const[checks,setChecks]=useState(()=>{try{const s=window.localStorage?.getItem("fl-checks");return s?JSON.parse(s):{}}catch(x){return{}}});
 const[expanded,setExpanded]=useState({});
-const[featureName,setFeatureName]=useState(()=>{try{return window.localStorage?.getItem("fl-name")||""}catch(e){return""}});
+const[featureName,setFeatureName]=useState(()=>{try{return window.localStorage?.getItem("fl-name")||""}catch(x){return""}});
 
-useEffect(()=>{try{window.localStorage?.setItem("fl-checks",JSON.stringify(checks))}catch(e){}},[checks]);
-useEffect(()=>{try{window.localStorage?.setItem("fl-name",featureName)}catch(e){}},[featureName]);
+useEffect(()=>{try{window.localStorage?.setItem("fl-checks",JSON.stringify(checks))}catch(x){}},[checks]);
+useEffect(()=>{try{window.localStorage?.setItem("fl-name",featureName)}catch(x){}},[featureName]);
 
 const stages=track==="full"?FULL_CYCLE:FAST_TRACK;
 const toggleCheck=useCallback(key=>{setChecks(prev=>({...prev,[key]:!prev[key]}));},[]);
@@ -162,53 +205,48 @@ const collapseAll=()=>setExpanded({});
 
 const stats=useMemo(()=>{
 let total=0,checked=0;
-stages.forEach(stage=>{
-const roles=roleFilter?Object.keys(stage.checklist||{}).filter(r=>r===roleFilter):Object.keys(stage.checklist||{});
-roles.forEach(r=>{(stage.checklist[r]||[]).forEach((_,i)=>{total++;if(checks[stage.id+"-"+r+"-"+i])checked++;});});
-});
+stages.forEach(stage=>{const roles=roleFilter?Object.keys(stage.checklist||{}).filter(r=>r===roleFilter):Object.keys(stage.checklist||{});roles.forEach(r=>{(stage.checklist[r]||[]).forEach((_,i)=>{total++;if(checks[stage.id+"-"+r+"-"+i])checked++;});});});
 return{total,checked,pct:total>0?Math.round(checked/total*100):0};
 },[checks,stages,roleFilter]);
 
-const resetAll=()=>{setChecks({});setExpanded({});setFeatureName("");try{window.localStorage?.removeItem("fl-checks");window.localStorage?.removeItem("fl-name")}catch(e){}};
+const resetAll=()=>{setChecks({});setExpanded({});setFeatureName("");try{window.localStorage?.removeItem("fl-checks");window.localStorage?.removeItem("fl-name")}catch(x){}};
 
-return e("div",{style:{maxWidth:"720px",margin:"0 auto",padding:"16px"}},
-e("div",{style:{marginBottom:"20px"}},
-e("h1",{style:{fontSize:"22px",fontWeight:800,color:"#111827",margin:"0 0 4px 0"}},"Feature Lifecycle"),
-e("p",{style:{fontSize:"13px",color:"#6B7280",margin:0}},"Freedom Finance — Banking Products")),
+return e("div",{style:{maxWidth:"780px",margin:"0 auto",padding:"16px"}},
+e("div",{style:{marginBottom:"20px"}},e("h1",{style:{fontSize:"22px",fontWeight:800,color:"#111827",margin:"0 0 4px 0"}},"Feature Lifecycle"),e("p",{style:{fontSize:"13px",color:"#6B7280",margin:0}},"Freedom Finance — Banking Products")),
 
 e("input",{type:"text",placeholder:"Название фичи / задачи...",value:featureName,onChange:ev=>setFeatureName(ev.target.value),style:{width:"100%",padding:"10px 12px",border:"1px solid #D1D5DB",borderRadius:"6px",fontSize:"14px",marginBottom:"16px",outline:"none",boxSizing:"border-box"}}),
 
-e("div",{style:{display:"flex",gap:"8px",marginBottom:"16px"}},
+e("div",{style:{display:"flex",gap:"8px",marginBottom:"12px"}},
 [{key:"full",label:"Full Cycle",desc:"Roadmap features"},{key:"fast",label:"Fast-Track",desc:"Hotfixes, ops tasks"}].map(t=>
-e("button",{key:t.key,onClick:()=>{setTrack(t.key);setExpanded({});},style:{flex:1,padding:"10px",border:track===t.key?"2px solid #3B82F6":"1px solid #E5E7EB",borderRadius:"8px",backgroundColor:track===t.key?"#EFF6FF":"#FFF",cursor:"pointer",textAlign:"center"}},
-e("div",{style:{fontWeight:700,fontSize:"14px",color:track===t.key?"#1D4ED8":"#374151"}},t.label),
-e("div",{style:{fontSize:"11px",color:"#9CA3AF"}},t.desc)))),
+e("button",{key:t.key,onClick:()=>{setTrack(t.key);setExpanded({});},style:{flex:1,padding:"10px",border:track===t.key?"2px solid #3B82F6":"1px solid #E5E7EB",borderRadius:"8px",backgroundColor:track===t.key?"#EFF6FF":"#FFF",cursor:"pointer",textAlign:"center"}},e("div",{style:{fontWeight:700,fontSize:"14px",color:track===t.key?"#1D4ED8":"#374151"}},t.label),e("div",{style:{fontSize:"11px",color:"#9CA3AF"}},t.desc)))),
+
+e("div",{style:{display:"flex",gap:"4px",marginBottom:"16px"}},
+[{key:"pipeline",label:"Pipeline"},{key:"checklist",label:"Checklist"}].map(v=>
+e("button",{key:v.key,onClick:()=>setView(v.key),style:{padding:"6px 16px",borderRadius:"6px",border:view===v.key?"2px solid #374151":"1px solid #E5E7EB",backgroundColor:view===v.key?"#1F2937":"#FFF",color:view===v.key?"#FFF":"#6B7280",fontSize:"12px",fontWeight:700,cursor:"pointer"}},v.label))),
 
 e("div",{style:{marginBottom:"16px"}},
 e("div",{style:{fontSize:"11px",fontWeight:700,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:"6px"}},"Filter by Role"),
 e("div",{style:{display:"flex",flexWrap:"wrap",gap:"4px"}},
 e("button",{onClick:()=>setRoleFilter(null),style:{padding:"4px 10px",borderRadius:"4px",border:!roleFilter?"2px solid #374151":"1px solid #E5E7EB",backgroundColor:!roleFilter?"#1F2937":"#FFF",color:!roleFilter?"#FFF":"#6B7280",fontSize:"12px",fontWeight:600,cursor:"pointer"}},"All"),
-...Object.entries(ROLES).map(([key,role])=>
-e("button",{key:key,onClick:()=>setRoleFilter(roleFilter===key?null:key),style:{padding:"4px 10px",borderRadius:"4px",border:roleFilter===key?"2px solid "+role.color:"1px solid #E5E7EB",backgroundColor:roleFilter===key?role.bg:"#FFF",color:roleFilter===key?role.color:"#6B7280",fontSize:"12px",fontWeight:600,cursor:"pointer"}},role.label)))),
+...Object.entries(ROLES).map(([key,role])=>e("button",{key:key,onClick:()=>setRoleFilter(roleFilter===key?null:key),style:{padding:"4px 10px",borderRadius:"4px",border:roleFilter===key?"2px solid "+role.color:"1px solid #E5E7EB",backgroundColor:roleFilter===key?role.bg:"#FFF",color:roleFilter===key?role.color:"#6B7280",fontSize:"12px",fontWeight:600,cursor:"pointer"}},role.label)))),
 
 e("div",{style:{backgroundColor:"#F9FAFB",borderRadius:"8px",padding:"12px 16px",marginBottom:"16px",border:"1px solid #E5E7EB"}},
-e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
-e("span",{style:{fontSize:"13px",fontWeight:600,color:"#374151"}},"Overall Progress"+(roleFilter?" ("+ROLES[roleFilter].label+")":"")),
-e("span",{style:{fontSize:"20px",fontWeight:800,color:stats.pct===100?"#10B981":"#3B82F6"}},stats.pct+"%")),
+e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},e("span",{style:{fontSize:"13px",fontWeight:600,color:"#374151"}},"Overall Progress"+(roleFilter?" ("+ROLES[roleFilter].label+")":"")),e("span",{style:{fontSize:"20px",fontWeight:800,color:stats.pct===100?"#10B981":"#3B82F6"}},stats.pct+"%")),
 e(ProgressBar,{completed:stats.checked,total:stats.total}),
 e("div",{style:{display:"flex",gap:"8px",marginTop:"8px"}},
-e("button",{onClick:expandAll,style:{fontSize:"11px",color:"#6B7280",cursor:"pointer",background:"none",border:"none",padding:0,textDecoration:"underline"}},"Expand All"),
-e("button",{onClick:collapseAll,style:{fontSize:"11px",color:"#6B7280",cursor:"pointer",background:"none",border:"none",padding:0,textDecoration:"underline"}},"Collapse All"),
+view==="checklist"&&e("button",{onClick:expandAll,style:{fontSize:"11px",color:"#6B7280",cursor:"pointer",background:"none",border:"none",padding:0,textDecoration:"underline"}},"Expand All"),
+view==="checklist"&&e("button",{onClick:collapseAll,style:{fontSize:"11px",color:"#6B7280",cursor:"pointer",background:"none",border:"none",padding:0,textDecoration:"underline"}},"Collapse All"),
 e("button",{onClick:resetAll,style:{fontSize:"11px",color:"#EF4444",cursor:"pointer",background:"none",border:"none",padding:0,textDecoration:"underline"}},"Reset"))),
 
-...stages.map(stage=>e(StageCard,{key:stage.id,stage:stage,checks:checks,onCheck:toggleCheck,expanded:!!expanded[stage.id],onToggle:()=>toggleExpand(stage.id),roleFilter:roleFilter})),
+view==="pipeline"?e(PipelineView,{stages:stages,checks:checks,onCheck:toggleCheck,roleFilter:roleFilter}):
+stages.map(stage=>e(StageCard,{key:stage.id,stage:stage,checks:checks,onCheck:toggleCheck,expanded:!!expanded[stage.id],onToggle:()=>toggleExpand(stage.id),roleFilter:roleFilter})),
 
 e("div",{style:{marginTop:"24px",padding:"12px 16px",backgroundColor:"#FFFBEB",borderRadius:"8px",border:"1px solid #FDE68A"}},
 e("div",{style:{fontSize:"12px",fontWeight:700,color:"#92400E",marginBottom:"4px"}},"Context & Constraints"),
 e("ul",{style:{margin:0,paddingLeft:"16px",fontSize:"12px",color:"#78350F",lineHeight:"1.6"}},
 e("li",null,"Роли SA и Analytics отсутствуют. Техдокументация — на Tech Lead / Senior. Аналитика — gap."),
 e("li",null,"Единая кодовая база с TN — обязательна оценка влияния на каждом этапе."),
-e("li",null,"Feature flags — обязательны для всех крупных фич. Раскатка: Dev → RC → Prod (10%) → Prod (100%)."),
+e("li",null,"Feature flags — обязательны для всех крупных фич. Раскатка: Dev \u2192 RC \u2192 Prod (10%) \u2192 Prod (100%)."),
 e("li",null,"Compliance-согласование — до начала разработки для customer-facing изменений."),
 e("li",null,"Тестирование на проде (позиция Дениса) — учитывать при планировании QA."))));
 }
